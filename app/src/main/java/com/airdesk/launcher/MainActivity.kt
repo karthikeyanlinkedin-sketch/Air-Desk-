@@ -7,11 +7,14 @@ import android.os.Bundle
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.content.pm.PackageManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.webkit.WebViewAssetLoader
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -20,10 +23,19 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val assetLoader = WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
+
         web=WebView(this)
         web.settings.javaScriptEnabled=true
         web.settings.domStorageEnabled=true
-        web.webViewClient=WebViewClient()
+        web.webViewClient=object:WebViewClient(){
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                return assetLoader.shouldInterceptRequest(request.url)
+            }
+        }
         web.webChromeClient=object:WebChromeClient(){
             override fun onPermissionRequest(r:PermissionRequest){
                 runOnUiThread {
@@ -34,7 +46,7 @@ class MainActivity : Activity() {
             }
         }
         web.addJavascriptInterface(JSBridge(),"AndroidAirDesk")
-        web.loadUrl("file:///android_asset/index.html")
+        web.loadUrl("https://appassets.androidplatform.net/assets/index.html")
         setContentView(web)
         if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)
             ActivityCompat.requestPermissions(this,arrayOf(Manifest.permission.CAMERA),10)
