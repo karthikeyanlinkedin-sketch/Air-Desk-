@@ -4,3 +4,4 @@
     <item name="android:windowFullscreen">true</item>
     <item name="android:navigationBarColor">#070A0D</item>
 </style>
+</resources>
