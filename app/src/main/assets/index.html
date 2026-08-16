@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:Arial;background:linear-gradient(145deg,#17351f,#244f2b 45%,#102719);color:white}
+#home{height:100%;padding:20px 18px}.status{display:flex;justify-content:space-between;font-size:12px;font-weight:bold}
+.pages{position:relative;overflow:hidden;margin-top:45px;height:58vh}.page{display:none}.page.active{display:block}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:25px 14px;margin-top:45px}
+.app{display:flex;flex-direction:column;align-items:center;gap:7px;background:none;color:white;border:0;text-shadow:0 2px 5px #0008}
+.icon{width:54px;height:54px;border-radius:17px;display:grid;place-items:center;font-size:25px;background:#fff;color:#333;box-shadow:0 5px 15px #0006}
+.air{background:linear-gradient(145deg,#7eabff,#6256e9)!important;color:white}.yt{background:#f21d42!important;color:white}.phone{background:#35b979!important;color:white}.cam{background:#293140!important;color:white}.maps{background:#fff!important;color:#2875e9}.calc{background:#d8dce2!important}.set{background:#687386!important;color:white}.airTarget .icon{outline:3px solid white;outline-offset:5px;transform:scale(1.08)}
+.app small{font-size:10px;font-weight:bold}
+#cameraBox{position:absolute;right:14px;bottom:135px;width:105px;height:78px;border-radius:16px;overflow:hidden;background:#000b;border:1px solid #fff3}
+#cam{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:.55}#pointer{position:absolute;inset:0;width:100%;height:100%}
+#state{position:absolute;bottom:5px;left:6px;background:#000b;padding:3px 5px;border-radius:5px;font-size:8px;color:#75f0c6}
+#hint{position:absolute;left:50%;transform:translateX(-50%);bottom:122px;font-size:9px;background:#0009;padding:6px 9px;border-radius:10px;white-space:nowrap}
+#cursor{position:fixed;width:25px;height:25px;border:2px solid white;border-radius:50%;z-index:20;pointer-events:none;transform:translate(-50%,-50%);display:none;box-shadow:0 0 18px #7c9cff}
+#permission{position:fixed;inset:0;background:#080b10ee;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px}
+#permission button{background:#7c9cff;border:0;padding:12px 18px;border-radius:10px;font-weight:bold}
+</style>
+</head>
+<body>
+<div id="home">
+<div class="status"><span id="time">--:--</span><span>● 5G+ ▮▮</span></div>
+<div class="pages" id="pages"></div>
+<div id="cameraBox"><video id="cam" autoplay playsinline></video><canvas id="pointer"></canvas><span id="state">STARTING</span></div>
+<div id="hint">☝ Move · 👆👆 Double Tap = Open · ✌️ 2-Finger Swipe = Pages</div>
+</div>
+<div id="cursor"></div>
+<div id="permission"><h2>AirDesk</h2><p>Camera permission is needed for air control.</p><button id="start">Start Air Mode</button></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+const cam=document.getElementById('cam'),permission=document.getElementById('permission'),cursor=document.getElementById('cursor'),state=document.getElementById('state');
+let lastTap=0,taps=0,timer=null,target=null,lastY=null,lastMotion=0;
+let page=0,pages=[],swipeStart=null,lastSwipe=0;
+
+function pt(l){return{x:(1-l.x)*innerWidth,y:l.y*innerHeight}}
+function iconText(label){return(label||'?').trim().split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase()||'?';}
+
+function renderPages(apps){
+ const holder=document.getElementById('pages'); if(!holder)return;
+ holder.innerHTML=''; pages=[];
+ const perPage=12;
+ for(let i=0;i<apps.length;i+=perPage){
+   const p=document.createElement('div');
+   p.className='page'+(pages.length===0?' active':'');
+   const grid=document.createElement('div'); grid.className='grid';
+   apps.slice(i,i+perPage).forEach(a=>{
+     const b=document.createElement('button');
+     b.className='app'; b.dataset.p=a.packageName;
+     b.innerHTML='<span class="icon">'+iconText(a.label)+'</span><small>'+a.label+'</small>';
+     grid.appendChild(b);
+   });
+   p.appendChild(grid); holder.appendChild(p); pages.push(p);
+ }
+ page=0;
+}
+
+function showPage(n){
+ if(!pages.length)return;
+ page=(n+pages.length)%pages.length;
+ pages.forEach((p,i)=>p.classList.toggle('active',i===page));
+ target=null;
+ state.textContent='PAGE '+(page+1)+' / '+pages.length;
+ setTimeout(()=>state.textContent='AIR MODE',700);
+}
+
+function loadRealApps(){
+ let apps=[];
+ try{apps=JSON.parse(AndroidAirDesk.getApps()||'[]')}catch(e){}
+ renderPages(apps);
+}
+
+function results(r){
+ const hands=r.multiHandLandmarks||[];
+ if(!hands.length){
+   cursor.style.display='none'; state.textContent='NO HAND';
+   if(target)target.classList.remove('airTarget');
+   target=null; lastY=null; swipeStart=null; return;
+ }
+
+ const l=hands[0],p=pt(l[8]);
+ cursor.style.display='block'; cursor.style.left=p.x+'px'; cursor.style.top=p.y+'px';
+
+ const el=document.elementFromPoint(p.x,p.y),next=el&&el.closest('[data-p]');
+ if(target&&target!==next)target.classList.remove('airTarget');
+ target=next||null; if(target)target.classList.add('airTarget');
+
+ // ✌️ Two-finger horizontal swipe:
+ // index + middle fingers extended and separated; right = next page,
+ // left = previous page.
+ const ix=l[8], mid=l[12];
+ const separated=Math.abs(ix.x-mid.x)>0.07;
+ const center=(ix.x+mid.x)/2;
+ const now=performance.now();
+ if(separated){
+   if(swipeStart===null) swipeStart=center;
+   const dx=center-swipeStart;
+   if(Math.abs(dx)>0.20 && now-lastSwipe>700){
+     if(dx>0) showPage(page+1);
+     else showPage(page-1);
+     lastSwipe=now; swipeStart=center;
+   }
+ }else{
+   swipeStart=null;
+ }
+
+ // 👆👆 Air double-tap: two quick short vertical index-finger movements.
+ const dy=lastY===null?0:l[8].y-lastY;
+ if(Math.abs(dy)>0.055 && now-lastMotion>120){
+   lastMotion=now;
+   taps=(now-lastTap<650)?taps+1:1; lastTap=now;
+   clearTimeout(timer);
+   timer=setTimeout(()=>{taps=0;state.textContent='AIR MODE'},650);
+   state.textContent=taps===1?'AIR TAP 1 / 2':'AIR TAP 2 / 2';
+   if(taps===2){
+     taps=0; clearTimeout(timer);
+     if(target) AndroidAirDesk.openApp(target.dataset.p);
+     state.textContent='OPENING';
+     setTimeout(()=>state.textContent='AIR MODE',700);
+   }
+ }
+ lastY=l[8].y;
+}
+loadRealApps();
+
+async function start(){
+ try{
+  cam.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false});
+  const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+  hands.setOptions({maxNumHands:1,modelComplexity:1,minDetectionConfidence:.65,minTrackingConfidence:.6});hands.onResults(results);
+  async function loop(){if(cam.readyState>=2)await hands.send({image:cam});requestAnimationFrame(loop)}loop();
+  permission.style.display='none';state.textContent='AIR MODE';
+ }catch(e){state.textContent='CAMERA ERROR'}
+}
+document.getElementById('start').onclick=start;
+function tick(){const d=new Date();document.getElementById('time').textContent=d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}tick();setInterval(tick,1000);
+</script>
+</body></html>
